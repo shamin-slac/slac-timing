@@ -2,7 +2,7 @@ import epics
 from slac_devices.device import LazyPV
 
 
-class PVGroup:
+class IndexedPVGroup:
     """Indexed access for parametric PVs like DST{0-9} or TS{1-6}."""
 
     def __init__(self, prefix: str, suffix_template: str, indices: range):
@@ -50,8 +50,8 @@ class BSASystemPVs:
     def __init__(self, prefix: str = "BSA:SYS0:1"):
         self.nfree = LazyPV(f"{prefix}:NFREEBSA")
         self.reserve_name = LazyPV(f"{prefix}:BSANAME")
-        self.slot_names = PVGroup(prefix, "{}:NAME", range(21, 50))
-        self.slot_usernames = PVGroup(prefix, "{}:USERNAME", range(21, 50))
+        self.slot_names = IndexedPVGroup(prefix, "{}:NAME", range(21, 50))
+        self.slot_usernames = IndexedPVGroup(prefix, "{}:USERNAME", range(21, 50))
 
 
 class EventDefinitionSystemPVs:
@@ -60,8 +60,8 @@ class EventDefinitionSystemPVs:
     def __init__(self):
         self.reserve_name = LazyPV("IOC:IN20:EV01:EDEFNAME")
         self.available = LazyPV("IOC:IN20:EV01:EDEFAVAIL")
-        self.slot_names = PVGroup("EDEF:SYS0", "{}:NAME", range(1, 12))
-        self.slot_usernames = PVGroup("EDEF:SYS0", "{}:USERNAME", range(1, 12))
+        self.slot_names = IndexedPVGroup("EDEF:SYS0", "{}:NAME", range(1, 12))
+        self.slot_usernames = IndexedPVGroup("EDEF:SYS0", "{}:USERNAME", range(1, 12))
 
 
 # --- Buffer PV Containers ---
@@ -90,9 +90,9 @@ class BSABufferPVs(BufferPVs):
         self.fixedrate = LazyPV(f"{prefix}:FIXEDRATE")
         self.acrate = LazyPV(f"{prefix}:ACRATE")
         self.hst_ready = LazyPV(f"{prefix}:HST_READY")
-        self.dst = PVGroup(prefix, "DST{}", range(0, 10))
-        self.dst_desc = PVGroup(prefix, "DST{}.DESC", range(0, 10))
-        self.ts = PVGroup(prefix, "TS{}", range(1, 7))
+        self.dst = IndexedPVGroup(prefix, "DST{}", range(0, 10))
+        self.dst_desc = IndexedPVGroup(prefix, "DST{}.DESC", range(0, 10))
+        self.ts = IndexedPVGroup(prefix, "TS{}", range(1, 7))
 
 
 class EventDefinitionPVs(BufferPVs):
@@ -102,7 +102,7 @@ class EventDefinitionPVs(BufferPVs):
         super().__init__(prefix)
         self.beamcode = LazyPV(f"{prefix}:BEAMCODE")
         self.cntmax = LazyPV(f"{prefix}:CNTMAX")
-        self.inclusion = PVGroup(prefix, "INCLUSION{}", range(1, 6))
-        self.exclusion = PVGroup(prefix, "EXCLUSION{}", range(1, 6))
-        self.pnbn_names = PVGroup("PNBN:SYS0", "{}:NAME", range(1, 141))
-        self.pnbn_positions = PVGroup("PNBN:SYS0", "{}:BITP", range(1, 141))
+        self.inclusion = IndexedPVGroup(prefix, "INCLUSION{}", range(1, 6))
+        self.exclusion = IndexedPVGroup(prefix, "EXCLUSION{}", range(1, 6))
+        self.pnbn_names = IndexedPVGroup("PNBN:SYS0", "{}:NAME", range(1, 141))
+        self.pnbn_positions = IndexedPVGroup("PNBN:SYS0", "{}:BITP", range(1, 141))
