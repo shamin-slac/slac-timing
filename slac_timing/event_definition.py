@@ -1,5 +1,5 @@
 import time
-from typing import ClassVar, Dict, Optional
+from typing import Optional
 
 from pydantic import model_validator
 
@@ -16,7 +16,7 @@ _SYSTEM = EventDefinitionSystemPVs()
 class EventDefinition(Buffer):
     """CU linac eDef buffer."""
 
-    BEAMCODE_MAP: ClassVar[Dict[str, int]] = {
+    BEAMCODE_MAP = {
         "CU_HXR": 1,
         "CU_SXR": 2,
     }
