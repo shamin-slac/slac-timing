@@ -144,7 +144,7 @@ class EventDefinition(Buffer):
 
     def _clear_masks(self, group) -> None:
         res = [group[n].put(0, wait=True) for n in range(1, 6)]
-        if not all(res):
+        if not all(r is not None for r in res):
             msg = "PV timed out."
             for i in range(0, len(res)):
                 msg += f"\npv={group[i + 1].pvname}, value={res[i]}"
@@ -152,13 +152,13 @@ class EventDefinition(Buffer):
 
     def _get_mask_cache(self) -> dict:
         names = self.pvs.pnbn_names.get_many(as_string=True)
-        if not all(names):
+        if not all(n is not None for n in names):
             msg = "PV timed out."
             for i in range(0, len(names)):
                 msg += f"\npv={self.pvs.pnbn_names[i + 1].pvname}, value={names[i]}"
             raise ReservationError(msg)
         positions = self.pvs.pnbn_positions.get_many()
-        if not all(positions):
+        if not all(n is not None for n in positions):
             msg = "PV timed out."
             for i in range(0, len(names)):
                 msg += f"\npv={self.pvs.pnbn_positions[i + 1].pvname}, value={positions[i]}"

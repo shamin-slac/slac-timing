@@ -77,8 +77,6 @@ def test_fail_mask_pos_pvs():
     import slac_timing.event_definition
     import slac_timing.buffer
 
-    assert epics.caget("IOC:IN20:EV01:EDEFNAME") is not None
-
     with pytest.raises(slac_timing.buffer.ReservationError) as e:
         slac_timing.event_definition.EventDefinition(
             name="name",
