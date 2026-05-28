@@ -1,6 +1,6 @@
 from slac_timing.buffer import Buffer
 from slac_timing.bsa_buffer import BSABuffer
-from slac_timing.event_definition import EventDefinition, BEAMCODE_MAP
+from slac_timing.event_definition import EventDefinition
 
 
 def create_buffer(
