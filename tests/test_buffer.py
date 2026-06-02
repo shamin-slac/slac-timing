@@ -124,12 +124,14 @@ class TestGetRetries:
         assert mock.call_count == 1
 
 
-class TestGetDataBuffer:
-    def test_alias_calls_get(self, buffer):
-        raw = np.arange(5, dtype=float)
-        with patch("epics.caget", return_value=raw):
-            result = buffer.get_data_buffer("SOME:PV", pad=True)
-        np.testing.assert_array_equal(result, raw)
+class TestGetPadWithRetries:
+    def test_pad_applied_when_no_retries(self, buffer):
+        short = np.array([1.0, 2.0])
+        with patch("epics.caget", return_value=short):
+            result = buffer.get("SOME:PV", pad=True)
+        assert len(result) == 5
+        np.testing.assert_array_equal(result[:2], [1.0, 2.0])
+        assert np.isnan(result[2])
 
 
 class TestGetMany:
