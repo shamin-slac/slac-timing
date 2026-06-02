@@ -1,3 +1,4 @@
+import time as _time
 from abc import ABC, abstractmethod
 from typing import Optional
 
@@ -8,6 +9,12 @@ from slac_timing.pvs import BufferPVs
 
 
 class ReservationError(Exception):
+    pass
+
+
+class BufferSizeError(Exception):
+    """Raised when buffer data size does not match n_measurements after retries."""
+
     pass
 
 
@@ -112,10 +119,118 @@ class Buffer(BaseModel, ABC):
         """Construct full buffered PV name: {pv}{suffix}{number}"""
         return f"{pv}{suffix}{self.number}"
 
-    def get(self, pv: str) -> Optional[np.ndarray]:
-        """Get buffer data for a single PV. Returns None if unreachable."""
+    def get(
+        self,
+        pv: str,
+        *,
+        pad: bool = False,
+        fill_value: float = np.nan,
+        retries: int = 0,
+        retry_delay: float = 1.0,
+    ) -> Optional[np.ndarray]:
+        """Get buffer data for a single PV.
+
+        Args:
+            pv: PV name (without HST suffix or buffer number).
+            pad: If True, pad short data to n_measurements with fill_value,
+                and replace None with a full fill_value array.
+            fill_value: Value used for padding (default NaN).
+            retries: Number of re-fetch attempts on size mismatch.
+            retry_delay: Seconds between retry attempts.
+
+        Returns:
+            Array of length n_measurements (when pad=True), or None/short array otherwise.
+
+        Raises:
+            BufferSizeError: If retries > 0 and data size still mismatches after all attempts.
+        """
         import epics
 
+        data = self._fetch_single(epics, pv)
+
+        if retries > 0 and self.n_measurements > 0:
+            for _ in range(retries):
+                if data is not None and len(data) == self.n_measurements:
+                    break
+                _time.sleep(retry_delay)
+                data = self._fetch_single(epics, pv)
+            else:
+                if data is None or len(data) != self.n_measurements:
+                    raise BufferSizeError(
+                        f"Expected {self.n_measurements} points for {pv}, "
+                        f"got {len(data) if data is not None else 'None'} "
+                        f"after {retries} retries."
+                    )
+
+        return self._apply_pad(data, pad, fill_value)
+
+    def get_many(
+        self,
+        pvs: list[str],
+        *,
+        pad: bool = False,
+        fill_value: float = np.nan,
+        retries: int = 0,
+        retry_delay: float = 1.0,
+    ) -> dict[str, Optional[np.ndarray]]:
+        """Batched read via caget_many.
+
+        Args:
+            pvs: List of PV names.
+            pad: If True, pad short data and replace None with fill_value arrays.
+            fill_value: Value used for padding (default NaN).
+            retries: Number of re-fetch attempts on any size mismatch in the batch.
+            retry_delay: Seconds between retry attempts.
+
+        Raises:
+            BufferSizeError: If retries > 0 and any PV still mismatches after all attempts.
+        """
+        import epics
+
+        results = self._fetch_many(epics, pvs)
+
+        if retries > 0 and self.n_measurements > 0:
+            for _ in range(retries):
+                if self._batch_sizes_ok(results):
+                    break
+                _time.sleep(retry_delay)
+                results = self._fetch_many(epics, pvs)
+            else:
+                if not self._batch_sizes_ok(results):
+                    raise BufferSizeError(
+                        f"Batch size mismatch after {retries} retries."
+                    )
+
+        if pad:
+            return {pv: self._apply_pad(data, pad, fill_value) for pv, data in results.items()}
+        return results
+
+    def get_data_buffer(self, pv: str, **kwargs) -> Optional[np.ndarray]:
+        """Compatibility alias for get()."""
+        return self.get(pv, **kwargs)
+
+    # --- Internal helpers ---
+
+    def _apply_pad(
+        self, data: Optional[np.ndarray], pad: bool, fill_value: float
+    ) -> Optional[np.ndarray]:
+        if not pad or self.n_measurements <= 0:
+            return data
+        if data is None:
+            return np.full(self.n_measurements, fill_value)
+        if len(data) < self.n_measurements:
+            padded = np.full(self.n_measurements, fill_value)
+            padded[: len(data)] = data
+            return padded
+        return data
+
+    def _batch_sizes_ok(self, results: dict[str, Optional[np.ndarray]]) -> bool:
+        for data in results.values():
+            if data is None or len(data) != self.n_measurements:
+                return False
+        return True
+
+    def _fetch_single(self, epics, pv: str) -> Optional[np.ndarray]:
         data = epics.caget(self.buffer_pv(pv))
         if data is None:
             return None
@@ -123,10 +238,7 @@ class Buffer(BaseModel, ABC):
             return data[: self.n_measurements]
         return data
 
-    def get_many(self, pvs: list[str]) -> dict[str, Optional[np.ndarray]]:
-        """Batched read via caget_many. Returns None for failed PVs."""
-        import epics
-
+    def _fetch_many(self, epics, pvs: list[str]) -> dict[str, Optional[np.ndarray]]:
         hst_pvs = [self.buffer_pv(pv) for pv in pvs]
         raw = epics.caget_many(hst_pvs)
         results = {}
@@ -138,3 +250,5 @@ class Buffer(BaseModel, ABC):
             else:
                 results[pv] = data
         return results
+
+
