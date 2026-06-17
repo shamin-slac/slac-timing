@@ -82,20 +82,19 @@ class Buffer(BaseModel, ABC):
         ctx = epics.ca.current_context()
         if ctx is None:
             return
-        context_cache = epics.ca._cache.get(ctx)
-        if context_cache is None:
-            return
+
         suffix = f"HST{self.number}"
-        stale = [name for name in context_cache if name.endswith(suffix)]
-        for name in stale:
-            for form in ("time", "ctrl", "native"):
-                pvid = (name, form, ctx)
-                pv_obj = _PVcache_.pop(pvid, None)
-                if pv_obj is not None:
-                    try:
-                        pv_obj.disconnect()
-                    except BaseException:
-                        pass
+        stale_pvids = [
+            pvid for pvid in list(_PVcache_)
+            if pvid[0].endswith(suffix)
+        ]
+        for pvid in stale_pvids:
+            pv_obj = _PVcache_.pop(pvid, None)
+            if pv_obj is not None:
+                try:
+                    pv_obj.disconnect()
+                except BaseException:
+                    pass
 
     def is_reserved(self) -> bool:
         return self.number is not None and self.number != 0
