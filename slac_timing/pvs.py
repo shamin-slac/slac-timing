@@ -1,5 +1,6 @@
 import epics
 from slac_tools import LazyPV
+import gc
 
 
 class IndexedPVGroup:
@@ -88,6 +89,7 @@ class BufferPVs:
                 attr.disconnect()
             elif isinstance(attr, IndexedPVGroup):
                 attr.disconnect()
+        gc.collect()
 
 
 class BSABufferPVs(BufferPVs):
