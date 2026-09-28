@@ -1,3 +1,4 @@
+import warnings
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
@@ -42,7 +43,8 @@ def buffer():
     with patch("pydantic.BaseModel.model_post_init"):
         buf = ConcreteBuffer.__new__(ConcreteBuffer)
         buf.__dict__.update(
-            name="test", user="tester", number=1, n_measurements=5, n_avg=1, _pvs=None
+            name="test", user="tester", number=1, n_measurements=5, n_avg=1,
+            _pvs=None, _trim_offset=None
         )
     return buf
 
@@ -196,3 +198,114 @@ class TestGetMany:
         with patch("epics.caget_many", side_effect=[short_batch, ok_batch]):
             result = buffer.get_many(["PV:A", "PV:B"], retries=2, retry_delay=0)
         np.testing.assert_array_equal(result["PV:A"], np.arange(5, dtype=float))
+
+
+class TestComputeTrimOffset:
+    def test_front_stale_returns_excess(self, buffer):
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([np.full(15, 100.0), active])
+        assert buffer._compute_trim_offset(raw) == 15
+
+    def test_back_stale_returns_zero(self, buffer):
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([active, np.full(15, 100.0)])
+        assert buffer._compute_trim_offset(raw) == 0
+
+    def test_exact_size_returns_zero(self, buffer):
+        raw = np.arange(5, dtype=float)
+        assert buffer._compute_trim_offset(raw) == 0
+
+    def test_small_excess_returns_zero(self, buffer):
+        raw = np.concatenate([np.full(7, 100.0), np.arange(5, dtype=float)])
+        assert buffer._compute_trim_offset(raw) == 0
+
+    def test_both_flat_returns_zero(self, buffer):
+        raw = np.full(20, 100.0)
+        assert buffer._compute_trim_offset(raw) == 0
+
+
+class TestCalibrateTrim:
+    def test_caches_offset_and_returns_it(self, buffer):
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([np.full(15, 100.0), active])
+        with _mock_pv(return_value=raw):
+            offset = buffer.calibrate_trim("SOME:PV")
+        assert offset == 15
+        assert buffer._trim_offset == 15
+
+    def test_emits_future_warning(self, buffer):
+        with _mock_pv(return_value=np.arange(5, dtype=float)):
+            with pytest.warns(FutureWarning, match="temporary workaround"):
+                buffer.calibrate_trim("SOME:PV")
+
+    def test_emits_user_warning_when_stale_detected(self, buffer):
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([np.full(15, 100.0), active])
+        with _mock_pv(return_value=raw):
+            with pytest.warns(UserWarning, match="stale samples"):
+                buffer.calibrate_trim("SOME:PV")
+
+    def test_no_user_warning_when_no_stale(self, buffer):
+        raw = np.arange(5, dtype=float)
+        with _mock_pv(return_value=raw):
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                buffer.calibrate_trim("SOME:PV")
+        user_warnings = [x for x in w if issubclass(x.category, UserWarning)
+                         and not issubclass(x.category, FutureWarning)]
+        assert len(user_warnings) == 0
+
+    def test_none_data_returns_zero(self, buffer):
+        with _mock_pv(return_value=None):
+            offset = buffer.calibrate_trim("SOME:PV")
+        assert offset == 0
+        assert buffer._trim_offset == 0
+
+
+class TestApplyTrim:
+    def test_uses_cached_offset_on_oversized_data(self, buffer):
+        buffer.__dict__["_trim_offset"] = 15
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([np.full(15, 100.0), active])
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV")
+        np.testing.assert_array_equal(result, active)
+
+    def test_ignores_offset_on_correct_size_data(self, buffer):
+        buffer.__dict__["_trim_offset"] = 15
+        raw = np.arange(5, dtype=float)
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV")
+        np.testing.assert_array_equal(result, raw)
+
+    def test_default_truncation_without_calibration(self, buffer):
+        raw = np.arange(20, dtype=float)
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV")
+        np.testing.assert_array_equal(result, np.arange(5, dtype=float))
+
+    def test_fetch_many_applies_offset(self, buffer):
+        buffer.__dict__["_trim_offset"] = 15
+        active_a = np.linspace(0, 50, 5)
+        active_b = np.linspace(100, 150, 5)
+        raw_a = np.concatenate([np.full(15, 0.0), active_a])
+        raw_b = np.concatenate([np.full(15, 0.0), active_b])
+        with patch("epics.caget_many", return_value=[raw_a, raw_b]):
+            result = buffer.get_many(["PV:A", "PV:B"])
+        np.testing.assert_array_equal(result["PV:A"], active_a)
+        np.testing.assert_array_equal(result["PV:B"], active_b)
+
+
+class TestResetTrim:
+    def test_clears_offset(self, buffer):
+        buffer.__dict__["_trim_offset"] = 15
+        buffer.reset_trim()
+        assert buffer._trim_offset is None
+
+    def test_reverts_to_default_truncation(self, buffer):
+        buffer.__dict__["_trim_offset"] = 15
+        buffer.reset_trim()
+        raw = np.arange(20, dtype=float)
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV")
+        np.testing.assert_array_equal(result, np.arange(5, dtype=float))
